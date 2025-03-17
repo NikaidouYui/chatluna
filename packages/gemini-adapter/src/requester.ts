@@ -18,10 +18,10 @@ import { Config, logger } from '.'
 import {
     ChatCompletionMessageFunctionCall,
     ChatFunctionCallingPart,
+    ChatInlineDataPart,
     ChatMessagePart,
     ChatPart,
     ChatResponse,
-    ChatInlineDataPart,
     CreateEmbeddingResponse
 } from './types'
 import {
