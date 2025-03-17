@@ -64,64 +64,62 @@ export async function middleware(ctx: Context, config: Config) {
         chain: ChatChain
     ) => PromiseLike<void> | void
 
-    const middlewares: Middleware[] =
-        // middleware start
-        [
-            add_preset,
-            add_user_to_auth_group,
-            allow_reply,
-            black_list,
-            censor,
-            chat_time_limit_check,
-            chat_time_limit_save,
-            check_room,
-            clear_balance,
-            clear_room,
-            clone_preset,
-            cooldown_time,
-            create_auth_group,
-            create_room,
-            delete_preset,
-            delete_room,
-            invite_room,
-            join_room,
-            kick_member,
-            kick_user_form_auth_group,
-            leave_room,
-            lifecycle,
-            list_all_embeddings,
-            list_all_model,
-            list_all_preset,
-            list_all_vectorstore,
-            list_auth_group,
-            list_room,
-            message_delay,
-            mute_user,
-            query_balance,
-            read_chat_message,
-            render_message,
-            request_model,
-            resolve_model,
-            resolve_room,
-            restart,
-            rollback_chat,
-            room_info,
-            room_permission,
-            search_model,
-            set_auth_group,
-            set_auto_update_room,
-            set_balance,
-            set_default_embeddings,
-            set_default_vectorstore,
-            set_preset,
-            set_room,
-            stop_chat,
-            switch_room,
-            thinking_message_recall,
-            thinking_message_send,
-            transfer_room,
-            wipe
-        ] // middleware end
+    const middlewares: Middleware[] = [
+        add_preset, // 添加预设
+        add_user_to_auth_group, // 将用户添加到授权组
+        allow_reply, // 允许回复
+        black_list, // 黑名单管理
+        censor, // 内容审查
+        chat_time_limit_check, // 对话时间限制检查
+        chat_time_limit_save, // 对话时间限制保存
+        check_room, // 检查聊天室
+        clear_balance, // 清除余额
+        clear_room, // 清理聊天室
+        clone_preset, // 克隆预设
+        cooldown_time, // 冷却时间控制
+        create_auth_group, // 创建授权组
+        create_room, // 创建聊天室
+        delete_preset, // 删除预设
+        delete_room, // 删除聊天室
+        invite_room, // 邀请加入聊天室
+        join_room, // 加入聊天室
+        kick_member, // 踢出成员
+        kick_user_form_auth_group, // 将用户从授权组中踢出
+        leave_room, // 离开聊天室
+        lifecycle, // 生命周期管理
+        list_all_embeddings, // 列出所有嵌入
+        list_all_model, // 列出所有模型
+        list_all_preset, // 列出所有预设
+        list_all_vectorstore, // 列出所有向量存储
+        list_auth_group, // 列出授权组
+        list_room, // 列出聊天室
+        message_delay, // 消息延迟处理
+        mute_user, // 禁言用户
+        query_balance, // 查询余额
+        read_chat_message, // 读取聊天消息
+        render_message, // 渲染消息
+        request_model, // 请求模型
+        resolve_model, // 解析模型
+        resolve_room, // 解析聊天室
+        restart, // 重启
+        rollback_chat, // 回滚对话
+        room_info, // 聊天室信息
+        room_permission, // 聊天室权限
+        search_model, // 搜索模型
+        set_auth_group, // 设置授权组
+        set_auto_update_room, // 设置自动更新聊天室
+        set_balance, // 设置余额
+        set_default_embeddings, // 设置默认嵌入
+        set_default_vectorstore, // 设置默认向量存储
+        set_preset, // 设置预设
+        set_room, // 设置聊天室
+        stop_chat, // 停止对话
+        switch_room, // 切换聊天室
+        thinking_message_recall, // 思考消息撤回
+        thinking_message_send, // 思考消息发送
+        transfer_room, // 转让聊天室
+        wipe // 清除数据
+    ] // middleware end
 
     for (const middleware of middlewares) {
         await middleware(ctx, config, ctx.chatluna.chatChain)

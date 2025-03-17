@@ -33,26 +33,43 @@ import { PresetTemplate } from 'koishi-plugin-chatluna/llm-core/prompt'
 import { getMessageContent } from 'koishi-plugin-chatluna/utils/string'
 import type { HandlerResult } from '../../utils/types'
 
+/**
+ * ChatInterface 类
+ * 负责管理聊天接口的核心功能，包括模型初始化、聊天历史管理、错误处理等
+ */
 export class ChatInterface {
+    // 私有成员变量，存储聊天接口的配置和状态
     private _input: ChatInterfaceInput
     private _chatHistory: KoishiChatMessageHistory
     private _chains: Record<string, ChatLunaLLMChainWrapper> = {}
     private _embeddings: Embeddings
-
     private _errorCountsMap: Record<string, number[]> = {}
     private _chatCount = 0
 
+    /**
+     * 初始化聊天接口
+     * @param ctx Koishi上下文
+     * @param input 聊天接口配置
+     */
     constructor(
         public ctx: Context,
         input: ChatInterfaceInput
     ) {
-        this._input = input
+        this._input = input 
     }
 
-    private async handleChatError(
-        error: unknown,
-        config: ClientConfigWrapper
-    ): Promise<never> {
+    /**
+     * 处理聊天过程中的错误
+     * @param error 错误对象
+     * @param config 客户端配置
+     * 步骤:
+     * 1. 获取配置MD5值作为唯一标识
+     * 2. 特殊处理不安全内容错误
+     * 3. 记录错误发生时间
+     * 4. 检查是否需要禁用配置
+     * 5. 转换错误类型并抛出
+     */
+    private async handleChatError(error: unknown, config: ClientConfigWrapper): Promise<never> {
         const configMD5 = config.md5()
 
         if (
@@ -344,48 +361,52 @@ export class ChatInterface {
         }
     }
 
-    private async _initEmbeddings(
-        service: PlatformService
-    ): Promise<ChatHubBaseEmbeddings> {
-        if (
-            this._input.embeddings == null ||
-            this._input.embeddings.length < 1 ||
-            this._input.embeddings === '无'
-        ) {
-            if (
-                this._input.vectorStoreName != null &&
-                this._input.vectorStoreName?.length > 0 &&
-                this._input.vectorStoreName !== '无'
-            ) {
-                logger.warn(
-                    'Embeddings are empty, falling back to fake embeddings. Try check your config.'
-                )
+    /**
+     * 初始化Embeddings模型
+     * @param service 平台服务实例
+     * 步骤:
+     * 1. 检查embeddings配置是否为空
+     * 2. 解析模型名称获取平台和模型信息
+     * 3. 获取随机可用客户端
+     * 4. 根据客户端类型创建对应的embeddings模型
+     * 5. 处理不支持的情况，返回空embeddings
+     */
+    private async _initEmbeddings(service: PlatformService): Promise<ChatHubBaseEmbeddings> {
+        // 检查embeddings配置
+        if (this._input.embeddings == null || 
+            this._input.embeddings.length < 1 || 
+            this._input.embeddings === '无') {
+            // 处理空配置情况
+            if (this._input.vectorStoreName != null && 
+                this._input.vectorStoreName?.length > 0 && 
+                this._input.vectorStoreName !== '无') {
+                logger.warn('Embeddings配置为空，使用空embeddings。请检查配置。')
             }
             return emptyEmbeddings
         }
 
+        // 解析模型名称
         const [platform, modelName] = parseRawModelName(this._input.embeddings)
 
-        logger.info(`init embeddings for %c`, this._input.embeddings)
+        logger.info(`初始化embeddings: ${this._input.embeddings}`)
 
+        // 获取随机客户端
         const client = await service.randomClient(platform)
 
+        // 处理不支持的平台
         if (client == null || client instanceof PlatformModelClient) {
-            logger.warn(
-                `Platform ${platform} is not supported, falling back to fake embeddings`
-            )
+            logger.warn(`平台 ${platform} 不支持，使用空embeddings`)
             return emptyEmbeddings
         }
 
+        // 根据客户端类型创建模型
         if (client instanceof PlatformEmbeddingsClient) {
             return client.createModel(modelName)
         } else if (client instanceof PlatformModelAndEmbeddingsClient) {
             const model = client.createModel(modelName)
 
             if (model instanceof ChatLunaChatModel) {
-                logger.warn(
-                    `Model ${modelName} is not an embeddings model, falling back to fake embeddings`
-                )
+                logger.warn(`模型 ${modelName} 不是embeddings模型，使用空embeddings`)
                 return emptyEmbeddings
             }
 
@@ -393,19 +414,33 @@ export class ChatInterface {
         }
     }
 
+    /**
+     * 初始化LLM模型
+     * @param service 平台服务
+     * @param config 客户端配置
+     * @param llmModelName 模型名称
+     * 步骤:
+     * 1. 获取平台客户端
+     * 2. 获取模型信息
+     * 3. 创建模型实例
+     * 4. 验证模型类型并返回
+     */
     private async _initModel(
         service: PlatformService,
         config: ClientConfig,
         llmModelName: string
     ): Promise<[ChatLunaChatModel, ModelInfo]> {
+        // 获取平台客户端
         const platform = await service.getClient(config)
 
-        const llmInfo = (await platform.getModels()).find(
-            (model) => model.name === llmModelName
-        )
+        // 查找模型信息
+        const llmInfo = (await platform.getModels())
+            .find(model => model.name === llmModelName)
 
+        // 创建模型实例
         const llmModel = platform.createModel(llmModelName)
 
+        // 验证模型类型
         if (llmModel instanceof ChatLunaChatModel) {
             return [llmModel, llmInfo]
         }
@@ -458,15 +493,18 @@ export class ChatInterface {
     }
 }
 
+/**
+ * 聊天接口输入参数接口
+ */
 export interface ChatInterfaceInput {
-    chatMode: string
-    botName?: string
-    preset?: () => Promise<PresetTemplate>
-    model: string
-    embeddings?: string
-    vectorStoreName?: string
-    conversationId: string
-    maxMessagesCount: number
+    chatMode: string             // 聊天模式
+    botName?: string            // 机器人名称
+    preset?: () => Promise<PresetTemplate>  // 预设模板
+    model: string               // 模型名称
+    embeddings?: string        // 向量嵌入模型
+    vectorStoreName?: string   // 向量存储名称
+    conversationId: string     // 会话ID
+    maxMessagesCount: number   // 最大消息数量
 }
 
 function checkRange(times: number[], delayTime: number) {
