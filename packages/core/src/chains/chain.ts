@@ -12,13 +12,35 @@ import { lifecycleNames } from '../middlewares/lifecycle'
 let logger: Logger
 
 /**
- * ChatChain为消息的发送和接收提供了一个统一的中间提供交互
+ * ChatChain 核心类 - 实现基于中间件的消息处理链
+ * 
+ * 主要职责：
+ * 1. 管理中间件依赖关系图
+ * 2. 处理消息接收和命令执行
+ * 3. 协调中间件的执行顺序
+ * 4. 统一处理错误和消息发送
+ * 
+ * 功能特性：
+ * - 支持拓扑排序确定中间件执行顺序
+ * - 提供消息发送的多种模式（普通/合并转发）
+ * - 内置超时处理和消息撤回机制
+ * - 完善的错误处理和日志记录
  */
 export class ChatChain {
     public readonly _graph: ChatChainDependencyGraph
     private readonly _senders: ChatChainSender[]
     private isSetErrorMessage = false
 
+    /**
+     * 初始化聊天链实例
+     * @param ctx Koishi 上下文对象
+     * @param config 插件配置
+     * 
+     * 初始化流程：
+     * 1. 创建日志记录器
+     * 2. 初始化依赖关系图
+     * 3. 注册默认消息发送器
+     */
     constructor(
         private readonly ctx: Context,
         private readonly config: Config
@@ -34,6 +56,18 @@ export class ChatChain {
         )
     }
 
+    /**
+     * 处理接收到的消息
+     * @param session 会话对象
+     * @param ctx 可选上下文对象（默认使用实例上下文）
+     * @returns 处理结果（是否成功）
+     * 
+     * 处理流程：
+     * 1. 初始化中间件上下文
+     * 2. 设置消息撤回处理逻辑
+     * 3. 执行中间件链
+     * 4. 清理超时处理
+     */
     async receiveMessage(session: Session, ctx?: Context) {
         const context: ChainMiddlewareContext = {
             config: this.config,
@@ -50,18 +84,17 @@ export class ChatChain {
 
             const timeoutObj = context.options.thinkingTimeoutObject
 
-            // Clear all timeouts
-            clearTimeout(timeoutObj.timeout!)
+            // 清理所有定时器
+            clearTimeout(timeoutObj.timeout!) // 清理主超时定时器
+            timeoutObj.autoRecallTimeout && 
+                clearTimeout(timeoutObj.autoRecallTimeout) // 清理自动撤回定时器
 
-            timeoutObj.autoRecallTimeout &&
-                clearTimeout(timeoutObj.autoRecallTimeout)
-
-            // Execute recall function if exists
+            // 执行撤回回调函数（如果存在）
             timeoutObj.recallFunc && (await timeoutObj.recallFunc())
 
-            // Cleanup
-            timeoutObj.timeout = null
-            context.options.thinkingTimeoutObject = undefined
+            // 清理状态
+            timeoutObj.timeout = null // 释放定时器引用
+            context.options.thinkingTimeoutObject = undefined // 移除超时对象
         }
 
         const result = await this._runMiddleware(session, context)
@@ -71,6 +104,18 @@ export class ChatChain {
         return result
     }
 
+    /**
+     * 处理接收到的命令
+     * @param session 会话对象
+     * @param command 命令名称
+     * @param options 命令选项
+     * @returns 处理结果（是否成功）
+     * 
+     * 与普通消息处理的区别：
+     * - 包含特定命令处理逻辑
+     * - 支持额外的命令选项参数
+     * - 执行命令特定的中间件流程
+     */
     async receiveCommand(
         session: Session,
         command: string,
@@ -92,18 +137,17 @@ export class ChatChain {
 
             const timeoutObj = context.options.thinkingTimeoutObject
 
-            // Clear all timeouts
-            clearTimeout(timeoutObj.timeout!)
+            // 清理所有定时器
+            clearTimeout(timeoutObj.timeout!) // 清理主超时定时器
+            timeoutObj.autoRecallTimeout && 
+                clearTimeout(timeoutObj.autoRecallTimeout) // 清理自动撤回定时器
 
-            timeoutObj.autoRecallTimeout &&
-                clearTimeout(timeoutObj.autoRecallTimeout)
-
-            // Execute recall function if exists
+            // 执行撤回回调函数（如果存在）
             timeoutObj.recallFunc && (await timeoutObj.recallFunc())
 
-            // Cleanup
-            timeoutObj.timeout = null
-            context.options.thinkingTimeoutObject = undefined
+            // 清理状态
+            timeoutObj.timeout = null // 释放定时器引用
+            context.options.thinkingTimeoutObject = undefined // 移除超时对象
         }
 
         const result = await this._runMiddleware(session, context)
@@ -113,6 +157,18 @@ export class ChatChain {
         return result
     }
 
+    /**
+     * 注册中间件
+     * @param name 中间件名称
+     * @param middleware 中间件处理函数
+     * @param ctx 上下文对象（默认使用实例上下文）
+     * @returns 中间件实例
+     * 
+     * 注册流程：
+     * 1. 创建中间件实例
+     * 2. 添加到依赖关系图
+     * 3. 注册销毁时的清理逻辑
+     */
     middleware<T extends keyof ChainMiddlewareName>(
         name: T,
         middleware: ChainMiddlewareFunction,
@@ -129,10 +185,33 @@ export class ChatChain {
         return result
     }
 
+    /**
+     * 注册消息发送器
+     * @param sender 发送器函数
+     * 
+     * 说明：
+     * - 支持多个发送器并行发送
+     * - 发送器按注册顺序执行
+     * - 可用于实现消息的多渠道分发
+     */
     sender(sender: ChatChainSender) {
         this._senders.push(sender)
     }
 
+    /**
+     * 执行中间件链
+     * @param session 会话对象
+     * @param context 中间件上下文
+     * @returns 处理结果
+     * 
+     * 执行流程：
+     * 1. 初始化错误消息模板
+     * 2. 构建中间件执行列表
+     * 3. 遍历执行中间件
+     * 4. 记录执行时间
+     * 5. 处理中间件返回结果
+     * 6. 捕获并处理异常
+     */
     private async _runMiddleware(
         session: Session,
         context: ChainMiddlewareContext
@@ -211,6 +290,16 @@ export class ChatChain {
         return true
     }
 
+    /**
+     * 发送消息到所有注册的发送器
+     * @param session 会话对象
+     * @param message 要发送的消息内容
+     * 
+     * 消息处理逻辑：
+     * 1. 标准化消息格式为数组
+     * 2. 遍历所有发送器进行发送
+     * 3. 支持多种消息格式（字符串/h对象/数组）
+     */
     private async sendMessage(
         session: Session,
         message: h[] | h[][] | h | string
@@ -225,6 +314,17 @@ export class ChatChain {
         }
     }
 
+    /**
+     * 处理中间件链终止状态
+     * @param session 会话对象
+     * @param context 中间件上下文
+     * @param originMessage 原始消息内容
+     * @param isOutputLog 是否输出日志
+     * 
+     * 终止处理逻辑：
+     * 1. 发送最终修改后的消息
+     * 2. 清理日志分隔线
+     */
     private async handleStopStatus(
         session: Session,
         context: ChainMiddlewareContext,
@@ -240,6 +340,18 @@ export class ChatChain {
         }
     }
 
+    /**
+     * 处理中间件执行错误
+     * @param session 会话对象
+     * @param middlewareName 中间件名称
+     * @param error 错误对象
+     * 
+     * 错误处理流程：
+     * 1. 识别特定ChatLuna错误类型
+     * 2. 发送友好错误信息给用户
+     * 3. 记录详细错误日志
+     * 4. 清理错误处理状态
+     */
     private async handleMiddlewareError(
         session: Session,
         middlewareName: string,
@@ -270,6 +382,20 @@ export class ChatChain {
     }
 }
 
+/**
+ * 中间件依赖关系图
+ * 
+ * 功能：
+ * - 管理中间件的依赖关系
+ * - 检测循环依赖
+ * - 生成拓扑排序执行顺序
+ * - 缓存执行顺序优化性能
+ * 
+ * 实现特性：
+ * - 使用Map结构存储节点和依赖关系
+ * - 事件驱动依赖关系更新
+ * - 支持动态添加/移除节点
+ */
 class ChatChainDependencyGraph {
     private _tasks = new Map<string, ChainDependencyGraphNode>()
     private _dependencies = new Map<string, Set<string>>()
@@ -463,11 +589,30 @@ class ChatChainDependencyGraph {
     }
 }
 
+/**
+ * 依赖图节点接口
+ * 
+ * 属性说明：
+ * - middleware: 关联的中间件实例
+ * - name: 中间件名称
+ */
 interface ChainDependencyGraphNode {
     middleware?: ChainMiddleware
     name: string
 }
 
+/**
+ * 中间件包装类
+ * 
+ * 职责：
+ * - 管理中间件的依赖关系
+ * - 提供before/after语法糖
+ * - 连接中间件与依赖关系图
+ * 
+ * 生命周期管理：
+ * - 自动处理生命周期中间件的顺序
+ * - 支持非生命周期中间件的依赖锚定
+ */
 export class ChainMiddleware {
     constructor(
         readonly name: string,
@@ -571,9 +716,42 @@ export class ChainMiddleware {
     }
 }
 
+/**
+ * 默认消息发送器
+ * 
+ * 功能：
+ * - 实现消息的两种发送模式：
+ *   1. 普通模式（逐条发送）
+ *   2. 转发模式（合并转发）
+ * - 处理消息内容过滤
+ * - 自动添加引用回复
+ * 
+ * 消息处理流程：
+ * 1. 转换消息格式
+ * 2. 过滤无效元素
+ * 3. 添加会话上下文
+ * 4. 选择发送模式
+ */
 class DefaultChatChainSender {
     constructor(private readonly config: Config) {}
 
+    /**
+     * 处理消息元素
+     * @param elements 原始消息元素数组
+     * @returns 处理后的消息元素数组
+     * 
+     * 处理步骤：
+     * 1. 过滤无效元素：
+     *    - 移除空元素
+     *    - 过滤掉附件图片（src以attachment开头的img元素）
+     * 2. 递归处理子元素：
+     *    - 对每个元素的children属性进行相同处理
+     * 3. 返回新处理后的元素数组
+     * 
+     * 过滤规则说明：
+     * - 保留除附件图片外的所有有效元素
+     * - 保持原有元素树形结构
+     */
     private processElements(elements: h[]): h[] {
         return elements
             .filter((element): element is h => {
@@ -648,6 +826,21 @@ class DefaultChatChainSender {
         throw new Error(`Unsupported message type: ${typeof firstMsg}`)
     }
 
+    /**
+     * 普通模式发送消息
+     * @param session 会话对象
+     * @param messages 消息内容数组
+     * 
+     * 处理流程：
+     * 1. 遍历所有消息
+     * 2. 为每条消息构建消息片段
+     * 3. 过滤无效元素
+     * 4. 逐条发送处理后的消息
+     * 5. 支持的消息类型：
+     *    - 字符串文本
+     *    - h对象
+     *    - h对象数组
+     */
     private async sendAsNormal(
         session: Session,
         messages: (h[] | h | string)[]
@@ -665,6 +858,27 @@ class DefaultChatChainSender {
         }
     }
 
+    /**
+     * 构建消息片段
+     * @param session 会话对象
+     * @param message 原始消息内容
+     * @returns 处理后的消息元素数组
+     * 
+     * 处理流程：
+     * 1. 判断是否需要添加引用回复：
+     *    - 配置启用回复@
+     *    - 非私聊会话
+     *    - 存在消息ID
+     * 2. 标准化消息格式为h数组
+     * 3. 验证消息有效性：
+     *    - 非空检查
+     *    - 非空白内容检查
+     * 4. 添加引用回复（如果兼容）：
+     *    - 生成引用元素
+     *    - 检查不兼容类型（音频/嵌套消息）
+     *    - 返回组合后的消息片段
+     * 5. 返回最终处理结果
+     */
     private async buildMessageFragment(
         session: Session,
         message: h[] | h | string
@@ -697,6 +911,18 @@ class DefaultChatChainSender {
         return hasIncompatibleType ? messageContent : [quote, ...messageContent]
     }
 
+    /**
+     * 标准化消息格式
+     * @param message 原始消息内容
+     * @returns 标准化后的h数组
+     * 
+     * 转换规则：
+     * 1. 数组类型直接返回
+     * 2. 字符串转换为包含h.text的数组
+     * 3. 单个h对象包装为数组
+     * 
+     * 保证输出始终为h[]类型
+     */
     private convertMessageToArray(message: h[] | h | string): h[] {
         if (Array.isArray(message)) {
             return message
@@ -708,6 +934,22 @@ class DefaultChatChainSender {
     }
 }
 
+/**
+ * 中间件上下文接口
+ * 
+ * 包含属性：
+ * - config: 插件配置
+ * - ctx: Koishi上下文
+ * - session: 当前会话
+ * - message: 处理中的消息内容
+ * - options: 中间件选项
+ * - command: 当前命令（可选）
+ * - recallThinkingMessage: 消息撤回方法
+ * - send: 消息发送方法
+ * 
+ * 使用场景：
+ * 中间件之间通过此上下文共享数据和状态
+ */
 export interface ChainMiddlewareContext {
     config: Config
     ctx: Context
@@ -719,6 +961,13 @@ export interface ChainMiddlewareContext {
     send: (message: h[][] | h[] | h | string) => Promise<void>
 }
 
+/**
+ * 中间件上下文选项接口
+ * 
+ * 说明：
+ * - 使用索引签名支持任意扩展属性
+ * - 用于在中间件之间传递自定义参数
+ */
 export interface ChainMiddlewareContextOptions {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [key: string]: any
@@ -736,6 +985,17 @@ export type ChatChainSender = (
     message: (h[] | h | string)[]
 ) => Promise<void>
 
+/**
+ * 中间件执行状态枚举
+ * 
+ * 状态说明：
+ * - SKIPPED: 跳过后续处理
+ * - STOP: 终止处理链
+ * - CONTINUE: 继续执行（默认）
+ * 
+ * 使用规范：
+ * 中间件应根据处理结果返回适当的状态码
+ */
 export enum ChainMiddlewareRunStatus {
     SKIPPED = 0,
     STOP = 1,
